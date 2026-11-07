@@ -81,9 +81,9 @@ export function LinkCard({
         )}
 
         {/* Metadata + chips */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] font-mono">
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[11px] font-mono">
           {link.author && (
-            <span className="text-neutral-500 truncate max-w-[150px]">
+            <span className="text-neutral-500 truncate max-w-[160px] mr-1">
               {link.author}
             </span>
           )}
@@ -96,7 +96,7 @@ export function LinkCard({
                 e.stopPropagation();
                 onSelectTag?.(t.name);
               }}
-              className="text-neutral-400 hover:text-neutral-200 transition-colors"
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-neutral-800 text-neutral-300 hover:border-neutral-700 hover:text-white transition-colors"
             >
               #{t.name}
             </button>
@@ -110,7 +110,7 @@ export function LinkCard({
                 e.stopPropagation();
                 onSelectPerson?.(p.name);
               }}
-              className="text-neutral-500 hover:text-neutral-300 transition-colors"
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-neutral-900/60 border border-neutral-800/60 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200 transition-colors"
             >
               @{p.name}
             </button>
