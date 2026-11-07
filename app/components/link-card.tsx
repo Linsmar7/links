@@ -20,6 +20,7 @@ interface LinkCardProps {
   isAdmin: boolean;
   onEdit?: (link: LinkCardData) => void;
   onDelete?: (id: number) => void;
+  onRefetch?: (id: number) => void;
   onSelectTag?: (tag: string) => void;
   onSelectPerson?: (person: string) => void;
 }
@@ -29,6 +30,7 @@ export function LinkCard({
   isAdmin,
   onEdit,
   onDelete,
+  onRefetch,
   onSelectTag,
   onSelectPerson,
 }: LinkCardProps) {
@@ -121,6 +123,17 @@ export function LinkCard({
       {/* Admin action buttons */}
       {isAdmin && (
         <div className="shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onRefetch && (
+            <button
+              type="button"
+              onClick={() => onRefetch(link.id)}
+              aria-label="Atualizar prévia"
+              title="Atualizar prévia"
+              className="text-neutral-500 hover:text-neutral-200 text-xs font-mono"
+            >
+              ↻
+            </button>
+          )}
           {onEdit && (
             <button
               type="button"

@@ -14,6 +14,7 @@ import { links, thumbnails, people, tags, linkPeople, linkTags } from '~/db/sche
 import { detectPlatform } from '~/lib/platform';
 import { normalizeUrl, extractContentId } from '~/lib/normalize-url';
 import { fetchLinkPreview } from '~/lib/preview.server';
+import { triggerPreviewWorker } from '~/lib/preview-worker.server';
 import { LinkCard, type LinkCardData } from '~/components/link-card';
 import { LinkForm } from '~/components/link-form';
 import { FilterBar } from '~/components/filter-bar';
@@ -207,17 +208,17 @@ export async function action({ request }: ActionFunctionArgs) {
     let thumbBuffer: Buffer | null = null;
     let thumbMime: string | null = null;
 
-    // If no manual title was provided, fetch preview now
-    if (!title) {
-      try {
-        const preview = await fetchLinkPreview(rawUrl);
-        title = preview.title;
-        description = preview.description || description;
-        author = preview.author || author;
-        siteName = preview.siteName;
-        thumbBuffer = preview.thumbnailBuffer;
-        thumbMime = preview.thumbnailMime;
-      } catch {}
+    // Always fetch preview on server to get thumbnail, author, siteName and fallback title/description
+    try {
+      const preview = await fetchLinkPreview(rawUrl);
+      if (!title) title = preview.title;
+      if (!description) description = preview.description;
+      if (!author) author = preview.author;
+      siteName = preview.siteName;
+      thumbBuffer = preview.thumbnailBuffer;
+      thumbMime = preview.thumbnailMime;
+    } catch (err) {
+      console.error('Error fetching preview for new link:', err);
     }
 
     const peopleList: string[] = JSON.parse(
@@ -238,13 +239,16 @@ export async function action({ request }: ActionFunctionArgs) {
           description,
           author,
           siteName,
-          previewStatus: title ? 'ok' : 'pendente',
+          previewStatus: thumbBuffer || title ? 'ok' : 'pendente',
         })
         .onConflictDoUpdate({
           target: links.urlKey,
           set: {
             title: title || undefined,
             description: description || undefined,
+            author: author || undefined,
+            siteName: siteName || undefined,
+            previewStatus: thumbBuffer || title ? 'ok' : 'pendente',
             updatedAt: new Date(),
           },
         })
@@ -304,6 +308,10 @@ export async function action({ request }: ActionFunctionArgs) {
           .onConflictDoNothing();
       }
     });
+
+    if (!thumbBuffer) {
+      triggerPreviewWorker();
+    }
 
     return { ok: true };
   }
@@ -383,6 +391,56 @@ export async function action({ request }: ActionFunctionArgs) {
     return { ok: true };
   }
 
+  // Refetch preview
+  if (intent === 'refetch_preview') {
+    const id = parseInt(formData.get('id')?.toString() || '', 10);
+    if (id) {
+      const [linkItem] = await db
+        .select({ id: links.id, url: links.url })
+        .from(links)
+        .where(eq(links.id, id));
+
+      if (linkItem) {
+        try {
+          const preview = await fetchLinkPreview(linkItem.url);
+          await db.transaction(async (tx) => {
+            await tx
+              .update(links)
+              .set({
+                title: preview.title || undefined,
+                description: preview.description || undefined,
+                author: preview.author || undefined,
+                siteName: preview.siteName || undefined,
+                previewStatus: preview.title ? 'ok' : 'falhou',
+                updatedAt: new Date(),
+              })
+              .where(eq(links.id, id));
+
+            if (preview.thumbnailBuffer && preview.thumbnailMime) {
+              await tx
+                .insert(thumbnails)
+                .values({
+                  linkId: id,
+                  data: preview.thumbnailBuffer,
+                  mime: preview.thumbnailMime,
+                })
+                .onConflictDoUpdate({
+                  target: thumbnails.linkId,
+                  set: {
+                    data: preview.thumbnailBuffer,
+                    mime: preview.thumbnailMime,
+                  },
+                });
+            }
+          });
+        } catch (err) {
+          console.error('Error refetching preview:', err);
+        }
+      }
+    }
+    return { ok: true };
+  }
+
   return { ok: true };
 }
 
@@ -418,6 +476,13 @@ export default function HomePage() {
       formData.set('id', id.toString());
       submit(formData, { method: 'post' });
     }
+  };
+
+  const handleRefetch = (id: number) => {
+    const formData = new FormData();
+    formData.set('intent', 'refetch_preview');
+    formData.set('id', id.toString());
+    submit(formData, { method: 'post' });
   };
 
   const handleSelectTag = (tagName: string) => {
@@ -514,6 +579,7 @@ export default function HomePage() {
               isAdmin={isAdmin}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onRefetch={handleRefetch}
               onSelectTag={handleSelectTag}
               onSelectPerson={handleSelectPerson}
             />
