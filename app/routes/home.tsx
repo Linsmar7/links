@@ -12,7 +12,7 @@ import { isAdmin, requireAdmin } from '~/lib/session.server';
 import { db } from '~/lib/db.server';
 import { links, thumbnails, people, tags, linkPeople, linkTags } from '~/db/schema';
 import { detectPlatform } from '~/lib/platform';
-import { normalizeUrl } from '~/lib/normalize-url';
+import { normalizeUrl, extractContentId } from '~/lib/normalize-url';
 import { fetchLinkPreview } from '~/lib/preview.server';
 import { LinkCard, type LinkCardData } from '~/components/link-card';
 import { LinkForm } from '~/components/link-form';
@@ -39,16 +39,42 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   if (q) {
-    const searchPattern = `%${q}%`;
-    conditions.push(
-      sql`(
-        unaccent(coalesce(${links.title}, '')) ILIKE unaccent(${searchPattern}) OR
-        unaccent(coalesce(${links.description}, '')) ILIKE unaccent(${searchPattern}) OR
-        unaccent(coalesce(${links.author}, '')) ILIKE unaccent(${searchPattern}) OR
-        unaccent(coalesce(${links.siteName}, '')) ILIKE unaccent(${searchPattern}) OR
-        ${links.url} ILIKE ${searchPattern}
-      )`
-    );
+    const rawPattern = `%${q}%`;
+    const searchConditions = [
+      sql`unaccent(coalesce(${links.title}, '')) ILIKE unaccent(${rawPattern})`,
+      sql`unaccent(coalesce(${links.description}, '')) ILIKE unaccent(${rawPattern})`,
+      sql`unaccent(coalesce(${links.author}, '')) ILIKE unaccent(${rawPattern})`,
+      sql`unaccent(coalesce(${links.siteName}, '')) ILIKE unaccent(${rawPattern})`,
+      sql`${links.url} ILIKE ${rawPattern}`,
+      sql`${links.urlKey} ILIKE ${rawPattern}`,
+    ];
+
+    // If query looks like a URL, has query params, or contains slashes/dots
+    if (q.includes('?') || q.includes('http') || q.includes('/') || q.includes('.')) {
+      const normalizedQ = normalizeUrl(q);
+      const urlWithoutQuery = q.split('?')[0].trim();
+      const contentId = extractContentId(q);
+
+      if (normalizedQ && normalizedQ !== q) {
+        const normPattern = `%${normalizedQ}%`;
+        searchConditions.push(sql`${links.urlKey} ILIKE ${normPattern}`);
+        searchConditions.push(sql`${links.url} ILIKE ${normPattern}`);
+      }
+
+      if (urlWithoutQuery && urlWithoutQuery !== q && urlWithoutQuery !== normalizedQ) {
+        const cleanPattern = `%${urlWithoutQuery}%`;
+        searchConditions.push(sql`${links.urlKey} ILIKE ${cleanPattern}`);
+        searchConditions.push(sql`${links.url} ILIKE ${cleanPattern}`);
+      }
+
+      if (contentId) {
+        const idPattern = `%${contentId}%`;
+        searchConditions.push(sql`${links.urlKey} ILIKE ${idPattern}`);
+        searchConditions.push(sql`${links.url} ILIKE ${idPattern}`);
+      }
+    }
+
+    conditions.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
   }
 
   if (tag) {
