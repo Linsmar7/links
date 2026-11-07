@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: links-postgres-dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: links
+    ports:
+      - "5433:5432"
+    volumes:
+      - links-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  links-pgdata:
+
